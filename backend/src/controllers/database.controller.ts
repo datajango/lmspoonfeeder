@@ -3,10 +3,10 @@ import { getDb } from '../db';
 import { BadRequestError, NotFoundError } from '../middleware/error.middleware';
 
 // Allowed tables to prevent SQL injection
-const ALLOWED_TABLES = ['provider_settings', 'tasks', 'results', 'profiles', 'conversations', 'messages', 'profile_models', 'comfyui_workflows', 'comfyui_generations'];
+const ALLOWED_TABLES = ['provider_settings', 'tasks', 'results', 'profiles', 'conversations', 'messages', 'profile_models', 'comfyui_workflows', 'comfyui_generations', 'comfyui_sessions'];
 
 // Order for truncating (children first to respect FK constraints)
-const TRUNCATE_ORDER = ['comfyui_generations', 'comfyui_workflows', 'messages', 'conversations', 'profile_models', 'results', 'tasks', 'profiles', 'provider_settings'];
+const TRUNCATE_ORDER = ['comfyui_generations', 'comfyui_sessions', 'comfyui_workflows', 'messages', 'conversations', 'profile_models', 'results', 'tasks', 'profiles', 'provider_settings'];
 
 export async function listTables(req: Request, res: Response, next: NextFunction) {
     try {

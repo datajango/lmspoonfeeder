@@ -12,6 +12,7 @@ import Settings from './pages/Settings';
 import DatabasePage from './pages/DatabasePage';
 import Conversations from './pages/Conversations';
 import ComfyUI from './pages/ComfyUI';
+import ComfyUIWorkflows from './pages/ComfyUIWorkflows';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -39,6 +40,7 @@ function App() {
             <Route path="database" element={<DatabasePage />} />
             <Route path="conversations" element={<Conversations />} />
             <Route path="comfyui" element={<ComfyUI />} />
+            <Route path="comfyui-workflows" element={<ComfyUIWorkflows />} />
           </Route>
         </Routes>
       </BrowserRouter>

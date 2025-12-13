@@ -4,6 +4,181 @@ import { NotFoundError, BadRequestError } from '../middleware/error.middleware';
 
 const COMFYUI_URL = 'http://localhost:8188';
 
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
+
+interface LoraConfig {
+    name: string;
+    strength_model: number;
+    strength_clip: number;
+}
+
+interface GenerationParameters {
+    width?: number;
+    height?: number;
+    steps?: number;
+    cfg_scale?: number;
+    seed?: number;
+    sampler_name?: string;
+    scheduler?: string;
+    batch_size?: number;
+    checkpoint_name?: string;
+    loras?: LoraConfig[];
+    [key: string]: any;
+}
+
+interface WorkflowParameter {
+    nodeId: string;
+    field: string;
+    label: string;
+    type: 'string' | 'number' | 'seed' | 'select';
+    value: any;
+    options?: (string | number)[];
+    min?: number;
+    max?: number;
+}
+
+// Default parameter values
+const DEFAULT_PARAMETERS: GenerationParameters = {
+    width: 512,
+    height: 512,
+    steps: 20,
+    cfg_scale: 7.0,
+    seed: -1,
+    sampler_name: 'euler',
+    scheduler: 'normal',
+    batch_size: 1,
+};
+
+// Available samplers
+const SAMPLERS = [
+    'euler', 'euler_ancestral', 'heun', 'heunpp2',
+    'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast',
+    'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_sde',
+    'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_sde',
+    'dpmpp_2m_sde_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu',
+    'ddpm', 'lcm', 'ddim', 'uni_pc', 'uni_pc_bh2'
+];
+
+// Available schedulers
+const SCHEDULERS = [
+    'normal', 'karras', 'exponential', 'sgm_uniform',
+    'simple', 'ddim_uniform', 'beta'
+];
+
+// Common dimensions
+const DIMENSIONS = [512, 768, 1024, 1280, 1536, 2048];
+
+// SDXL optimal dimensions
+const SDXL_DIMENSIONS = [
+    { width: 1024, height: 1024, label: '1:1 Square' },
+    { width: 1152, height: 896, label: '9:7 Landscape' },
+    { width: 896, height: 1152, label: '7:9 Portrait' },
+    { width: 1216, height: 832, label: '3:2 Landscape' },
+    { width: 832, height: 1216, label: '2:3 Portrait' },
+];
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+// Apply parameters to a workflow JSON
+function applyParametersToWorkflow(
+    workflowJson: object,
+    params: GenerationParameters,
+    prompt: string,
+    negativePrompt?: string
+): { workflow: object; resolvedSeed: number } {
+    const workflow = JSON.parse(JSON.stringify(workflowJson)); // Deep clone
+    let resolvedSeed = params.seed ?? -1;
+
+    // If seed is -1, generate a random one
+    if (resolvedSeed === -1) {
+        resolvedSeed = Math.floor(Math.random() * 2147483647);
+    }
+
+    // Find and update nodes by class_type
+    for (const [nodeId, node] of Object.entries(workflow)) {
+        const classType = (node as any).class_type;
+        const inputs = (node as any).inputs;
+
+        if (!inputs) continue;
+
+        switch (classType) {
+            case 'CLIPTextEncode':
+                // Check node title or position to determine positive vs negative
+                const nodeTitle = (node as any)._meta?.title?.toLowerCase() || '';
+                if (nodeTitle.includes('negative') || nodeTitle.includes('neg')) {
+                    inputs.text = negativePrompt || '';
+                } else if (nodeTitle.includes('positive') || nodeTitle.includes('pos') || !negativePrompt) {
+                    // Default to positive prompt for first text encoder
+                    if (inputs.text !== undefined) {
+                        inputs.text = prompt;
+                    }
+                }
+                break;
+
+            case 'KSampler':
+            case 'KSamplerAdvanced':
+                inputs.seed = resolvedSeed;
+                if (params.steps !== undefined) inputs.steps = params.steps;
+                if (params.cfg_scale !== undefined) inputs.cfg = params.cfg_scale;
+                if (params.sampler_name !== undefined) inputs.sampler_name = params.sampler_name;
+                if (params.scheduler !== undefined) inputs.scheduler = params.scheduler;
+                break;
+
+            case 'EmptyLatentImage':
+                if (params.width !== undefined) inputs.width = params.width;
+                if (params.height !== undefined) inputs.height = params.height;
+                if (params.batch_size !== undefined) inputs.batch_size = params.batch_size;
+                break;
+
+            case 'CheckpointLoaderSimple':
+                if (params.checkpoint_name !== undefined) inputs.ckpt_name = params.checkpoint_name;
+                break;
+        }
+    }
+
+    return { workflow, resolvedSeed };
+}
+
+// Extract editable parameters from a workflow
+function extractParametersFromWorkflow(workflowJson: object): WorkflowParameter[] {
+    const parameters: WorkflowParameter[] = [];
+
+    for (const [nodeId, node] of Object.entries(workflowJson)) {
+        const classType = (node as any).class_type;
+        const inputs = (node as any).inputs;
+
+        if (!inputs) continue;
+
+        switch (classType) {
+            case 'KSampler':
+            case 'KSamplerAdvanced':
+                parameters.push(
+                    { nodeId, field: 'seed', label: 'Seed', type: 'seed', value: inputs.seed || 0, min: 0, max: 2147483647 },
+                    { nodeId, field: 'steps', label: 'Steps', type: 'number', value: inputs.steps || 20, min: 1, max: 150 },
+                    { nodeId, field: 'cfg', label: 'CFG Scale', type: 'number', value: inputs.cfg || 7, min: 1, max: 30 },
+                    { nodeId, field: 'sampler_name', label: 'Sampler', type: 'select', value: inputs.sampler_name || 'euler', options: SAMPLERS },
+                    { nodeId, field: 'scheduler', label: 'Scheduler', type: 'select', value: inputs.scheduler || 'normal', options: SCHEDULERS }
+                );
+                break;
+
+            case 'EmptyLatentImage':
+                parameters.push(
+                    { nodeId, field: 'width', label: 'Width', type: 'select', value: inputs.width || 512, options: DIMENSIONS },
+                    { nodeId, field: 'height', label: 'Height', type: 'select', value: inputs.height || 512, options: DIMENSIONS },
+                    { nodeId, field: 'batch_size', label: 'Batch Size', type: 'number', value: inputs.batch_size || 1, min: 1, max: 8 }
+                );
+                break;
+        }
+    }
+
+    return parameters;
+}
+
+
 // List workflows
 export async function listWorkflows(req: Request, res: Response, next: NextFunction) {
     try {
@@ -537,3 +712,259 @@ export async function submitPrompt(req: Request, res: Response, next: NextFuncti
         }
     }
 }
+
+// ============================================
+// NEW ENHANCED ENDPOINTS
+// ============================================
+
+// Get available options (samplers, schedulers, etc.)
+export async function getOptions(req: Request, res: Response, next: NextFunction) {
+    try {
+        // Try to get checkpoints from ComfyUI
+        let checkpoints: string[] = [];
+        let loras: string[] = [];
+
+        try {
+            const objectInfoRes = await fetch(`${COMFYUI_URL}/object_info`);
+            if (objectInfoRes.ok) {
+                const objectInfo = await objectInfoRes.json() as Record<string, any>;
+
+                // Get checkpoints from CheckpointLoaderSimple
+                if (objectInfo.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0]) {
+                    checkpoints = objectInfo.CheckpointLoaderSimple.input.required.ckpt_name[0];
+                }
+
+                // Get LoRAs from LoraLoader
+                if (objectInfo.LoraLoader?.input?.required?.lora_name?.[0]) {
+                    loras = objectInfo.LoraLoader.input.required.lora_name[0];
+                }
+            }
+        } catch {
+            // ComfyUI not available, return empty arrays
+        }
+
+        res.json({
+            success: true,
+            data: {
+                samplers: SAMPLERS,
+                schedulers: SCHEDULERS,
+                checkpoints,
+                loras,
+                dimensions: {
+                    common: DIMENSIONS,
+                    sdxl_optimal: SDXL_DIMENSIONS,
+                },
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Enhanced generate with full parameters
+export async function generateWithParameters(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { sessionId } = req.params;
+        const {
+            workflow_id,
+            prompt_text,
+            negative_prompt,
+            parameters = {}
+        } = req.body;
+
+        const db = getDb();
+
+        if (!prompt_text) {
+            throw new BadRequestError('prompt_text is required');
+        }
+
+        // Get session
+        const session = await db('comfyui_sessions')
+            .leftJoin('profiles', 'comfyui_sessions.profile_id', 'profiles.id')
+            .select('comfyui_sessions.*', 'profiles.url as profile_url')
+            .where('comfyui_sessions.id', sessionId)
+            .first();
+
+        if (!session) {
+            throw new NotFoundError(`Session ${sessionId} not found`);
+        }
+
+        const comfyUrl = session.profile_url || COMFYUI_URL;
+
+        // Get workflow if specified, otherwise use default txt2img
+        let workflowJson: object;
+        let workflowId: string | null = workflow_id || session.current_workflow_id;
+
+        if (workflowId) {
+            const workflow = await db('comfyui_workflows').where('id', workflowId).first();
+            if (!workflow) {
+                throw new NotFoundError(`Workflow ${workflowId} not found`);
+            }
+            workflowJson = JSON.parse(workflow.workflow_json);
+        } else {
+            // Use built-in txt2img workflow
+            workflowJson = buildTxt2ImgWorkflow(prompt_text, negative_prompt);
+        }
+
+        // Merge default parameters with provided ones
+        const mergedParams: GenerationParameters = {
+            ...DEFAULT_PARAMETERS,
+            ...session.last_parameters,
+            ...parameters,
+        };
+
+        // Apply parameters to workflow
+        const { workflow: modifiedWorkflow, resolvedSeed } = applyParametersToWorkflow(
+            workflowJson,
+            mergedParams,
+            prompt_text,
+            negative_prompt
+        );
+
+        // Store the resolved seed
+        mergedParams.seed = resolvedSeed;
+
+        const startTime = Date.now();
+
+        // Send to ComfyUI
+        const response = await fetch(`${comfyUrl}/prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: modifiedWorkflow }),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new BadRequestError(`ComfyUI error: ${error}`);
+        }
+
+        const result = await response.json() as { prompt_id: string };
+
+        // Create generation record with all details
+        const [generation] = await db('comfyui_generations').insert({
+            session_id: sessionId,
+            workflow_id: workflowId,
+            workflow_json_snapshot: JSON.stringify(modifiedWorkflow),
+            prompt_id: result.prompt_id,
+            prompt_text,
+            negative_prompt,
+            parameters: JSON.stringify(mergedParams),
+            width: mergedParams.width,
+            height: mergedParams.height,
+            steps: mergedParams.steps,
+            cfg_scale: mergedParams.cfg_scale,
+            seed: resolvedSeed,
+            sampler_name: mergedParams.sampler_name,
+            scheduler: mergedParams.scheduler,
+            batch_size: mergedParams.batch_size || 1,
+            checkpoint_name: mergedParams.checkpoint_name,
+            loras_used: JSON.stringify(mergedParams.loras || []),
+            status: 'running',
+            batch_index: 0,
+        }).returning('*');
+
+        // Update session with last used parameters and increment count
+        await db('comfyui_sessions')
+            .where('id', sessionId)
+            .update({
+                updated_at: new Date(),
+                last_parameters: JSON.stringify(mergedParams),
+                generation_count: db.raw('generation_count + 1'),
+            });
+
+        // Parse outputs and parameters for response
+        const responseData = {
+            ...generation,
+            parameters: typeof generation.parameters === 'string'
+                ? JSON.parse(generation.parameters)
+                : generation.parameters,
+            loras_used: typeof generation.loras_used === 'string'
+                ? JSON.parse(generation.loras_used)
+                : generation.loras_used,
+            outputs: [],
+        };
+
+        res.json({ success: true, data: responseData });
+    } catch (error: any) {
+        if (error.code === 'ECONNREFUSED') {
+            next(new BadRequestError('Cannot connect to ComfyUI. Is it running?'));
+        } else {
+            next(error);
+        }
+    }
+}
+
+// Get generation workflow for reproduction
+export async function getGenerationWorkflow(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id } = req.params;
+        const db = getDb();
+
+        const generation = await db('comfyui_generations').where('id', id).first();
+        if (!generation) {
+            throw new NotFoundError(`Generation ${id} not found`);
+        }
+
+        res.json({
+            success: true,
+            data: {
+                workflow_json: generation.workflow_json_snapshot
+                    ? JSON.parse(generation.workflow_json_snapshot)
+                    : null,
+                parameters: generation.parameters
+                    ? (typeof generation.parameters === 'string'
+                        ? JSON.parse(generation.parameters)
+                        : generation.parameters)
+                    : {},
+                prompt_text: generation.prompt_text,
+                negative_prompt: generation.negative_prompt,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Update workflow with default parameters and extracted parameters
+export async function updateWorkflowParameters(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id } = req.params;
+        const { default_parameters, is_default } = req.body;
+        const db = getDb();
+
+        const workflow = await db('comfyui_workflows').where('id', id).first();
+        if (!workflow) {
+            throw new NotFoundError(`Workflow ${id} not found`);
+        }
+
+        const updates: any = { updated_at: new Date() };
+
+        if (default_parameters !== undefined) {
+            updates.default_parameters = JSON.stringify(default_parameters);
+        }
+
+        if (is_default !== undefined) {
+            // If setting as default, unset other defaults for same profile
+            if (is_default && workflow.profile_id) {
+                await db('comfyui_workflows')
+                    .where('profile_id', workflow.profile_id)
+                    .update({ is_default: false });
+            }
+            updates.is_default = is_default;
+        }
+
+        // Extract and cache parameters from workflow
+        const workflowJson = JSON.parse(workflow.workflow_json);
+        updates.extracted_parameters = JSON.stringify(extractParametersFromWorkflow(workflowJson));
+
+        const [updated] = await db('comfyui_workflows')
+            .where('id', id)
+            .update(updates)
+            .returning('*');
+
+        res.json({ success: true, data: updated });
+    } catch (error) {
+        next(error);
+    }
+}
+

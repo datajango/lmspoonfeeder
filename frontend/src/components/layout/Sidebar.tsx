@@ -10,13 +10,15 @@ import {
     Sparkles,
     Database,
     MessageCircle,
-    Image
+    Image,
+    Workflow
 } from 'lucide-react';
 
 const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/conversations', label: 'Conversations', icon: MessageCircle },
     { path: '/comfyui', label: 'ComfyUI', icon: Image },
+    { path: '/comfyui-workflows', label: 'ComfyUI WF', icon: Workflow },
     { path: '/models', label: 'Models', icon: Cpu },
     { path: '/tasks', label: 'Tasks', icon: ListTodo },
     { path: '/history', label: 'History', icon: History },
