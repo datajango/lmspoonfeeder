@@ -11,6 +11,7 @@ import profilesRoutes from './routes/profiles.routes';
 import databaseRoutes from './routes/database.routes';
 import chatRoutes from './routes/chat.routes';
 import conversationsRoutes from './routes/conversations.routes';
+import comfyuiRoutes from './routes/comfyui.routes';
 
 export function createApp(): Application {
     const app = express();
@@ -33,6 +34,7 @@ export function createApp(): Application {
     app.use('/api/database', databaseRoutes);
     app.use('/api/chat', chatRoutes);
     app.use('/api/conversations', conversationsRoutes);
+    app.use('/api/comfyui', comfyuiRoutes);
 
     // Error handling
     app.use(errorHandler);

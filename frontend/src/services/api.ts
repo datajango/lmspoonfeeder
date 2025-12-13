@@ -75,6 +75,17 @@ export const profilesApi = {
     update: (id: string, data: any) =>
         fetchApi<any>(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => fetchApi<any>(`/profiles/${id}`, { method: 'DELETE' }),
+    // Model management
+    listModels: (id: string) => fetchApi<any>(`/profiles/${id}/models`),
+    addModel: (id: string, modelId: string, name?: string) =>
+        fetchApi<any>(`/profiles/${id}/models`, { method: 'POST', body: JSON.stringify({ modelId, name }) }),
+    deleteModel: (id: string, modelId: string) =>
+        fetchApi<any>(`/profiles/${id}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' }),
+    syncModels: (id: string) =>
+        fetchApi<any>(`/profiles/${id}/models/sync`, { method: 'POST' }),
+    // Test connection
+    testConnection: (provider: string, apiKey?: string, url?: string) =>
+        fetchApi<any>('/profiles/test-connection', { method: 'POST', body: JSON.stringify({ provider, apiKey, url }) }),
 };
 
 // Health check

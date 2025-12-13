@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config';
+import { getDb } from '../db';
 import { NotFoundError, ProviderConnectionError } from '../middleware/error.middleware';
 import { ModelInfo } from '../types';
 
@@ -7,29 +8,30 @@ const OLLAMA_API = config.ollama.url;
 
 export async function listModels(req: Request, res: Response, next: NextFunction) {
     try {
-        const response = await fetch(`${OLLAMA_API}/api/tags`);
+        const db = getDb();
 
-        if (!response.ok) {
-            throw new ProviderConnectionError('Ollama', 'Failed to fetch models');
-        }
+        // Get all models from profile_models table with profile info
+        const profileModels = await db('profile_models')
+            .join('profiles', 'profile_models.profile_id', 'profiles.id')
+            .select(
+                'profile_models.model_id',
+                'profile_models.name',
+                'profiles.provider',
+                'profiles.name as profile_name'
+            );
 
-        const data = await response.json() as { models: any[] };
-        const models: ModelInfo[] = data.models.map((m: any) => ({
-            name: m.name,
-            size: formatBytes(m.size),
-            loaded: false, // Will be updated by checking running models
-            capabilities: inferCapabilities(m.name),
-            description: m.details?.family || 'Unknown',
-            parameters: m.details?.parameter_size || 'Unknown',
+        const models: ModelInfo[] = profileModels.map((m: any) => ({
+            name: m.model_id,
+            size: '',
+            loaded: false,
+            capabilities: inferCapabilities(m.model_id),
+            description: `${m.profile_name} (${m.provider})`,
+            parameters: m.name || m.model_id,
         }));
 
         res.json({ success: true, data: models });
     } catch (error: any) {
-        if (error.code === 'ECONNREFUSED') {
-            next(new ProviderConnectionError('Ollama', 'Ollama is not running'));
-        } else {
-            next(error);
-        }
+        next(error);
     }
 }
 

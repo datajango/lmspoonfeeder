@@ -11,6 +11,7 @@ import Results from './pages/Results';
 import Settings from './pages/Settings';
 import DatabasePage from './pages/DatabasePage';
 import Conversations from './pages/Conversations';
+import ComfyUI from './pages/ComfyUI';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -37,6 +38,7 @@ function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="database" element={<DatabasePage />} />
             <Route path="conversations" element={<Conversations />} />
+            <Route path="comfyui" element={<ComfyUI />} />
           </Route>
         </Routes>
       </BrowserRouter>

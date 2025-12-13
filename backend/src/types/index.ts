@@ -117,6 +117,8 @@ export interface Profile {
     description?: string;
     type: TaskType;
     provider: TaskProvider;
+    apiKey?: string;
+    url?: string;
     options?: Record<string, unknown>;
     promptTemplate?: string;
     createdAt: Date;
@@ -128,6 +130,8 @@ export interface ProfileInput {
     description?: string;
     type: TaskType;
     provider: TaskProvider;
+    apiKey?: string;
+    url?: string;
     options?: Record<string, unknown>;
     promptTemplate?: string;
 }

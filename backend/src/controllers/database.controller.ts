@@ -3,7 +3,10 @@ import { getDb } from '../db';
 import { BadRequestError, NotFoundError } from '../middleware/error.middleware';
 
 // Allowed tables to prevent SQL injection
-const ALLOWED_TABLES = ['provider_settings', 'tasks', 'results', 'profiles', 'conversations', 'messages'];
+const ALLOWED_TABLES = ['provider_settings', 'tasks', 'results', 'profiles', 'conversations', 'messages', 'profile_models', 'comfyui_workflows', 'comfyui_generations'];
+
+// Order for truncating (children first to respect FK constraints)
+const TRUNCATE_ORDER = ['comfyui_generations', 'comfyui_workflows', 'messages', 'conversations', 'profile_models', 'results', 'tasks', 'profiles', 'provider_settings'];
 
 export async function listTables(req: Request, res: Response, next: NextFunction) {
     try {
@@ -109,6 +112,111 @@ export async function getTableData(req: Request, res: Response, next: NextFuncti
                 totalPages: Math.ceil(total / limit),
             },
         });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function truncateTable(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { tableName } = req.params;
+
+        if (!ALLOWED_TABLES.includes(tableName)) {
+            throw new NotFoundError(`Table ${tableName} not found`);
+        }
+
+        const db = getDb();
+        const deleted = await db(tableName).delete();
+
+        res.json({ success: true, message: `Deleted ${deleted} rows from ${tableName}` });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function truncateAll(req: Request, res: Response, next: NextFunction) {
+    try {
+        const db = getDb();
+        const results: Record<string, number> = {};
+
+        // Truncate in order to respect FK constraints
+        for (const tableName of TRUNCATE_ORDER) {
+            try {
+                const deleted = await db(tableName).delete();
+                results[tableName] = deleted;
+            } catch {
+                results[tableName] = 0;
+            }
+        }
+
+        res.json({ success: true, message: 'All tables truncated', data: results });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function exportDatabase(req: Request, res: Response, next: NextFunction) {
+    try {
+        const db = getDb();
+        const exportData: Record<string, any[]> = {};
+
+        for (const tableName of ALLOWED_TABLES) {
+            try {
+                exportData[tableName] = await db(tableName).select('*');
+            } catch {
+                exportData[tableName] = [];
+            }
+        }
+
+        res.json({
+            success: true,
+            data: exportData,
+            exportedAt: new Date().toISOString(),
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function importDatabase(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { data, truncateFirst } = req.body;
+
+        if (!data || typeof data !== 'object') {
+            throw new BadRequestError('Invalid import data');
+        }
+
+        const db = getDb();
+        const results: Record<string, number> = {};
+
+        // If truncateFirst, clear tables in order
+        if (truncateFirst) {
+            for (const tableName of TRUNCATE_ORDER) {
+                if (ALLOWED_TABLES.includes(tableName)) {
+                    try {
+                        await db(tableName).delete();
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+        }
+
+        // Import in reverse order (parents first)
+        const importOrder = [...TRUNCATE_ORDER].reverse();
+
+        for (const tableName of importOrder) {
+            if (data[tableName] && Array.isArray(data[tableName]) && data[tableName].length > 0) {
+                try {
+                    await db(tableName).insert(data[tableName]);
+                    results[tableName] = data[tableName].length;
+                } catch (e: any) {
+                    results[tableName] = 0;
+                }
+            }
+        }
+
+        res.json({ success: true, message: 'Import complete', data: results });
     } catch (error) {
         next(error);
     }

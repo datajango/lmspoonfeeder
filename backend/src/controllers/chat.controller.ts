@@ -10,47 +10,30 @@ interface ChatMessage {
 }
 
 interface ChatRequest {
-    provider: 'ollama' | 'openai' | 'gemini' | 'claude';
+    provider: 'ollama' | 'openai' | 'gemini' | 'claude' | 'comfyui';
     model: string;
     messages: ChatMessage[];
+    profileId?: string; // Optional profile ID for API key lookup
 }
 
-// List all available chat sources
+// List all available chat sources (from profiles only)
 export async function listChatSources(req: Request, res: Response, next: NextFunction) {
     try {
         const db = getDb();
         const sources: Array<{ id: string; name: string; provider: string; type: 'local' | 'remote' }> = [];
 
-        // Get Ollama models
-        try {
-            const ollamaRes = await fetch(`${config.ollama.url}/api/tags`);
-            if (ollamaRes.ok) {
-                const data = await ollamaRes.json() as { models: any[] };
-                data.models.forEach((m: any) => {
-                    sources.push({
-                        id: `ollama:${m.name}`,
-                        name: m.name,
-                        provider: 'ollama',
-                        type: 'local',
-                    });
-                });
-            }
-        } catch {
-            // Ollama not running
-        }
+        // Get all profiles (they represent chat sources)
+        const profiles = await db('profiles').select('*');
 
-        // Get configured remote providers
-        const providers = await db('provider_settings')
-            .whereIn('status', ['connected', 'unknown'])
-            .select('provider', 'default_model');
+        for (const profile of profiles) {
+            // Determine if local or remote based on provider
+            const isLocal = profile.provider === 'ollama';
 
-        for (const p of providers) {
-            const modelName = p.default_model || getDefaultModel(p.provider);
             sources.push({
-                id: `${p.provider}:${modelName}`,
-                name: `${p.provider.charAt(0).toUpperCase() + p.provider.slice(1)} (${modelName})`,
-                provider: p.provider,
-                type: 'remote',
+                id: `profile:${profile.id}`,
+                name: profile.name,
+                provider: profile.provider,
+                type: isLocal ? 'local' : 'remote',
             });
         }
 
@@ -63,7 +46,7 @@ export async function listChatSources(req: Request, res: Response, next: NextFun
 // Chat endpoint
 export async function chat(req: Request, res: Response, next: NextFunction) {
     try {
-        const { provider, model, messages }: ChatRequest = req.body;
+        const { provider, model, messages, profileId }: ChatRequest = req.body;
 
         if (!provider || !model || !messages || messages.length === 0) {
             throw new BadRequestError('provider, model, and messages are required');
@@ -76,13 +59,13 @@ export async function chat(req: Request, res: Response, next: NextFunction) {
                 response = await chatOllama(model, messages);
                 break;
             case 'openai':
-                response = await chatOpenAI(model, messages);
+                response = await chatOpenAI(model, messages, profileId);
                 break;
             case 'gemini':
-                response = await chatGemini(model, messages);
+                response = await chatGemini(model, messages, profileId);
                 break;
             case 'claude':
-                response = await chatClaude(model, messages);
+                response = await chatClaude(model, messages, profileId);
                 break;
             default:
                 throw new BadRequestError(`Unknown provider: ${provider}`);
@@ -116,14 +99,36 @@ async function chatOllama(model: string, messages: ChatMessage[]): Promise<strin
     return data.message?.content || '';
 }
 
-async function chatOpenAI(model: string, messages: ChatMessage[]): Promise<string> {
+async function getProfileApiKey(profileId: string | undefined, provider: string): Promise<{ apiKey: string; url?: string }> {
     const db = getDb();
-    const settings = await db('provider_settings').where('provider', 'openai').first();
-    if (!settings) throw new Error('OpenAI not configured');
 
-    const apiKey = decrypt(settings.api_key);
+    if (profileId) {
+        // Use specific profile
+        const profile = await db('profiles').where('id', profileId).first();
+        if (!profile || !profile.api_key) {
+            throw new Error(`Profile ${profileId} not found or has no API key`);
+        }
+        return { apiKey: decrypt(profile.api_key), url: profile.url };
+    }
+
+    // Fall back to first profile with API key for this provider
+    const profile = await db('profiles')
+        .where('provider', provider)
+        .whereNotNull('api_key')
+        .first();
+
+    if (!profile) {
+        throw new Error(`No ${provider} profile with API key configured. Create a profile with an API key first.`);
+    }
+
+    return { apiKey: decrypt(profile.api_key), url: profile.url };
+}
+
+async function chatOpenAI(model: string, messages: ChatMessage[], profileId?: string): Promise<string> {
+    const { apiKey, url } = await getProfileApiKey(profileId, 'openai');
+
     const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey, baseURL: settings.endpoint_url || undefined });
+    const client = new OpenAI({ apiKey, baseURL: url || undefined });
 
     const response = await client.chat.completions.create({
         model,
@@ -133,12 +138,9 @@ async function chatOpenAI(model: string, messages: ChatMessage[]): Promise<strin
     return response.choices[0]?.message?.content || '';
 }
 
-async function chatGemini(model: string, messages: ChatMessage[]): Promise<string> {
-    const db = getDb();
-    const settings = await db('provider_settings').where('provider', 'gemini').first();
-    if (!settings) throw new Error('Gemini not configured');
+async function chatGemini(model: string, messages: ChatMessage[], profileId?: string): Promise<string> {
+    const { apiKey } = await getProfileApiKey(profileId, 'gemini');
 
-    const apiKey = decrypt(settings.api_key);
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
     const geminiModel = genAI.getGenerativeModel({ model });
@@ -156,12 +158,9 @@ async function chatGemini(model: string, messages: ChatMessage[]): Promise<strin
     return result.response.text();
 }
 
-async function chatClaude(model: string, messages: ChatMessage[]): Promise<string> {
-    const db = getDb();
-    const settings = await db('provider_settings').where('provider', 'claude').first();
-    if (!settings) throw new Error('Claude not configured');
+async function chatClaude(model: string, messages: ChatMessage[], profileId?: string): Promise<string> {
+    const { apiKey } = await getProfileApiKey(profileId, 'claude');
 
-    const apiKey = decrypt(settings.api_key);
     const Anthropic = (await import('@anthropic-ai/sdk')).default;
     const client = new Anthropic({ apiKey });
 
@@ -188,3 +187,4 @@ function getDefaultModel(provider: string): string {
         default: return 'unknown';
     }
 }
+
