@@ -1,5 +1,5 @@
 import type { ComfyUIGeneration, GenerationParameters } from '../../types/comfyui';
-import { RefreshCw, Copy, FileJson, Clock, Loader2, AlertCircle } from 'lucide-react';
+import { RefreshCw, Copy, FileJson, Clock, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -8,12 +8,14 @@ interface GenerationCardProps {
     generation: ComfyUIGeneration;
     onReuseSettings: (params: GenerationParameters) => void;
     onViewWorkflow?: (id: string) => void;
+    onDelete?: (id: string) => void;
 }
 
 export default function GenerationCard({
     generation,
     onReuseSettings,
     onViewWorkflow,
+    onDelete,
 }: GenerationCardProps) {
     const copySeed = () => {
         if (generation.seed) {
@@ -140,6 +142,15 @@ export default function GenerationCard({
                         View JSON
                     </button>
                 )}
+                {onDelete && (
+                    <button
+                        onClick={() => onDelete(generation.id)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white/10 hover:bg-red-500/20 rounded-lg transition-colors text-red-400"
+                        title="Delete generation"
+                    >
+                        <Trash2 className="w-3 h-3" />
+                    </button>
+                )}
                 <span className="ml-auto text-xs text-[var(--text-secondary)]">
                     {new Date(generation.created_at).toLocaleTimeString()}
                 </span>
@@ -147,3 +158,4 @@ export default function GenerationCard({
         </div>
     );
 }
+

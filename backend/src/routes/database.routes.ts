@@ -7,6 +7,7 @@ import {
     truncateAll,
     exportDatabase,
     importDatabase,
+    executeSQL,
 } from '../controllers/database.controller';
 
 const router = Router();
@@ -18,5 +19,6 @@ router.delete('/tables/:tableName/truncate', truncateTable);
 router.delete('/truncate-all', truncateAll);
 router.get('/export', exportDatabase);
 router.post('/import', importDatabase);
+router.post('/sql', executeSQL);
 
 export default router;

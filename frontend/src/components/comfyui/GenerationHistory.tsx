@@ -7,6 +7,7 @@ interface GenerationHistoryProps {
     generations: ComfyUIGeneration[];
     onReuseSettings: (params: GenerationParameters) => void;
     onViewWorkflow?: (id: string) => void;
+    onDelete?: (id: string) => void;
     isPolling?: boolean;
 }
 
@@ -14,6 +15,7 @@ export default function GenerationHistory({
     generations,
     onReuseSettings,
     onViewWorkflow,
+    onDelete,
     isPolling = false,
 }: GenerationHistoryProps) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -54,6 +56,7 @@ export default function GenerationHistory({
                             generation={gen}
                             onReuseSettings={onReuseSettings}
                             onViewWorkflow={onViewWorkflow}
+                            onDelete={onDelete}
                         />
                     ))
                 )}
@@ -61,3 +64,4 @@ export default function GenerationHistory({
         </div>
     );
 }
+

@@ -11,7 +11,8 @@ import {
     Database,
     MessageCircle,
     Image,
-    Workflow
+    Workflow,
+    Terminal
 } from 'lucide-react';
 
 const navItems = [
@@ -25,6 +26,7 @@ const navItems = [
     { path: '/profiles', label: 'Profiles', icon: BookmarkCheck },
     { path: '/results', label: 'Results', icon: FileOutput },
     { path: '/database', label: 'Database', icon: Database },
+    { path: '/sql', label: 'SQL Console', icon: Terminal },
     { path: '/settings', label: 'Settings', icon: Settings },
 ];
 

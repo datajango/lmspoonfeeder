@@ -90,6 +90,13 @@ function applyParametersToWorkflow(
     prompt: string,
     negativePrompt?: string
 ): { workflow: object; resolvedSeed: number } {
+
+    console.log('applyParametersToWorkflow', workflowJson, params, prompt, negativePrompt);
+
+    console.log('=== INPUT ===');
+    console.log('prompt:', prompt);
+    console.log('negativePrompt:', negativePrompt);
+
     const workflow = JSON.parse(JSON.stringify(workflowJson)); // Deep clone
     let resolvedSeed = params.seed ?? -1;
 
@@ -97,6 +104,12 @@ function applyParametersToWorkflow(
     if (resolvedSeed === -1) {
         resolvedSeed = Math.floor(Math.random() * 2147483647);
     }
+
+    // Ensure we have a proper default for negative prompt
+    const effectiveNegativePrompt = (negativePrompt && negativePrompt.trim())
+        ? negativePrompt.trim()
+        : 'low quality, blurry, distorted, ugly, bad anatomy, watermark, text';
+
 
     // Find and update nodes by class_type
     for (const [nodeId, node] of Object.entries(workflow)) {
@@ -137,11 +150,16 @@ function applyParametersToWorkflow(
         const classType = (node as any).class_type;
         const inputs = (node as any).inputs;
 
+
         if (classType === 'KSampler' || classType === 'KSamplerAdvanced') {
             // Get the positive and negative node references
             // Format: ["nodeId", outputIndex]
             const positiveRef = inputs.positive;
             const negativeRef = inputs.negative;
+
+            console.log('=== PROMPT NODE DETECTION ===');
+            console.log('positiveRef:', positiveRef);
+            console.log('negativeRef:', negativeRef);
 
             if (positiveRef && Array.isArray(positiveRef)) {
                 const positiveNodeId = positiveRef[0];
@@ -155,12 +173,19 @@ function applyParametersToWorkflow(
                 const negativeNodeId = negativeRef[0];
                 const negativeNode = (workflow as any)[negativeNodeId];
                 if (negativeNode?.inputs) {
-                    negativeNode.inputs.text = negativePrompt || 'low quality, blurry, distorted';
+                    //negativeNode.inputs.text = negativePrompt || 'low quality, blurry, distorted';
+                    negativeNode.inputs.text = effectiveNegativePrompt;
                 }
             }
             break; // Only need to process one KSampler
         }
     }
+
+    // At the end, before return:
+    console.log('=== OUTPUT ===');
+    console.log('Node 6 (positive):', (workflow as any)["6"]?.inputs?.text);
+    console.log('Node 7 (negative):', (workflow as any)["7"]?.inputs?.text);
+    console.log('Resolved seed:', resolvedSeed);
 
     return { workflow, resolvedSeed };
 }
@@ -465,6 +490,28 @@ export async function listGenerations(req: Request, res: Response, next: NextFun
                 ...g,
                 outputs: g.outputs ? JSON.parse(g.outputs) : [],
             })),
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Delete a generation
+export async function deleteGeneration(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id } = req.params;
+        const db = getDb();
+
+        const generation = await db('comfyui_generations').where('id', id).first();
+        if (!generation) {
+            throw new NotFoundError(`Generation ${id} not found`);
+        }
+
+        await db('comfyui_generations').where('id', id).delete();
+
+        res.json({
+            success: true,
+            message: 'Generation deleted',
         });
     } catch (error) {
         next(error);

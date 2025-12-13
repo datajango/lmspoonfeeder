@@ -221,3 +221,54 @@ export async function importDatabase(req: Request, res: Response, next: NextFunc
         next(error);
     }
 }
+
+export async function executeSQL(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { query } = req.body;
+
+        if (!query || typeof query !== 'string') {
+            throw new BadRequestError('query is required');
+        }
+
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) {
+            throw new BadRequestError('query cannot be empty');
+        }
+
+        const db = getDb();
+
+        // Execute the query
+        const result = await db.raw(trimmedQuery);
+
+        // PostgreSQL returns results in result.rows
+        const rows = result.rows || [];
+        const fields = result.fields?.map((f: any) => f.name) || [];
+
+        // For non-SELECT queries (INSERT, UPDATE, DELETE), rowCount is available
+        const rowCount = result.rowCount;
+        const command = result.command; // SELECT, INSERT, UPDATE, DELETE, etc.
+
+        res.json({
+            success: true,
+            data: {
+                rows,
+                fields,
+                rowCount,
+                command,
+            },
+        });
+    } catch (error: any) {
+        // Return SQL errors in a user-friendly way
+        if (error.code) {
+            res.status(400).json({
+                success: false,
+                error: `SQL Error: ${error.message}`,
+                code: error.code,
+                detail: error.detail,
+                hint: error.hint,
+            });
+        } else {
+            next(error);
+        }
+    }
+}

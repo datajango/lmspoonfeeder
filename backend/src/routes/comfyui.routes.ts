@@ -9,6 +9,7 @@ import {
     getGeneration,
     proxyImage,
     listGenerations,
+    deleteGeneration,
     listSessions,
     getSession,
     createSession,
@@ -54,6 +55,7 @@ router.get('/workflows/:id/generations', listGenerations);
 // Generations
 router.get('/generations/:id', getGeneration);
 router.get('/generations/:id/workflow', getGenerationWorkflow);
+router.delete('/generations/:id', deleteGeneration);
 
 // Image proxy
 router.get('/image/:filename', proxyImage);
