@@ -27,7 +27,7 @@ export default function Profiles() {
     const [editing, setEditing] = useState<Profile | null>(null);
     const [showApiKey, setShowApiKey] = useState(false);
     const [expandedProfile, setExpandedProfile] = useState<string | null>(null);
-    const [profileModels, setProfileModels] = useState<Record<string, Array<{ id: string; name: string }>>>({});
+    const [profileModels, setProfileModels] = useState<Record<string, Array<{ id: string; name: string; inputModalities?: string[]; outputModalities?: string[] }>>>({});
     const [newModelId, setNewModelId] = useState('');
     const [isLocal, setIsLocal] = useState(true);
     const [testing, setTesting] = useState(false);
@@ -131,6 +131,45 @@ export default function Profiles() {
             setProfileModels(prev => ({ ...prev, [profileId]: result.data }));
         } catch {
             // ignore
+        }
+    };
+
+    const handleModelModalityToggle = async (
+        profileId: string,
+        modelId: string,
+        type: 'input' | 'output',
+        modality: string,
+        currentModalities: string[]
+    ) => {
+        const newModalities = currentModalities.includes(modality)
+            ? currentModalities.filter(m => m !== modality)
+            : [...currentModalities, modality];
+
+        try {
+            await fetch(`/api/profiles/${profileId}/models/${encodeURIComponent(modelId)}/modalities`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    inputModalities: type === 'input' ? newModalities : undefined,
+                    outputModalities: type === 'output' ? newModalities : undefined,
+                }),
+            });
+
+            // Update local state
+            setProfileModels(prev => ({
+                ...prev,
+                [profileId]: (prev[profileId] || []).map(m =>
+                    m.id === modelId
+                        ? {
+                            ...m,
+                            inputModalities: type === 'input' ? newModalities : m.inputModalities,
+                            outputModalities: type === 'output' ? newModalities : m.outputModalities,
+                        }
+                        : m
+                ),
+            }));
+        } catch {
+            toast.error('Failed to update modalities');
         }
     };
 
@@ -239,6 +278,8 @@ export default function Profiles() {
             name: form.name,
             description: form.description,
             type: form.type,
+            inputModalities: form.inputModalities,
+            outputModalities: form.outputModalities,
             provider: form.provider,
             url: form.url,
             promptTemplate: form.promptTemplate,
@@ -428,67 +469,6 @@ export default function Profiles() {
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm text-[var(--text-secondary)] mb-2">Input Modalities</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {inputModalities.map((m) => (
-                                            <label
-                                                key={m}
-                                                className={`px-3 py-1.5 rounded-lg cursor-pointer border transition-colors text-sm ${form.inputModalities.includes(m)
-                                                        ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400'
-                                                        : 'border-white/10 text-[var(--text-secondary)] hover:bg-white/5'
-                                                    }`}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    value={m}
-                                                    checked={form.inputModalities.includes(m)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setForm({ ...form, inputModalities: [...form.inputModalities, m] });
-                                                        } else {
-                                                            setForm({ ...form, inputModalities: form.inputModalities.filter(x => x !== m) });
-                                                        }
-                                                    }}
-                                                    className="sr-only"
-                                                />
-                                                {m.charAt(0).toUpperCase() + m.slice(1)}
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm text-[var(--text-secondary)] mb-2">Output Modalities</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {outputModalities.map((m) => (
-                                            <label
-                                                key={m}
-                                                className={`px-3 py-1.5 rounded-lg cursor-pointer border transition-colors text-sm ${form.outputModalities.includes(m)
-                                                        ? 'bg-green-500/20 border-green-500/50 text-green-400'
-                                                        : 'border-white/10 text-[var(--text-secondary)] hover:bg-white/5'
-                                                    }`}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    value={m}
-                                                    checked={form.outputModalities.includes(m)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setForm({ ...form, outputModalities: [...form.outputModalities, m] });
-                                                        } else {
-                                                            setForm({ ...form, outputModalities: form.outputModalities.filter(x => x !== m) });
-                                                        }
-                                                    }}
-                                                    className="sr-only"
-                                                />
-                                                {m.charAt(0).toUpperCase() + m.slice(1)}
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-
                             <div>
                                 <label className="block text-sm text-[var(--text-secondary)] mb-1">Description</label>
                                 <input
@@ -610,15 +590,47 @@ export default function Profiles() {
                                                 <p className="text-xs text-[var(--text-secondary)]">No models. Click "Sync from API" to fetch available models.</p>
                                             ) : (
                                                 (profileModels[profile.id] || []).map(model => (
-                                                    <div key={model.id} className="flex items-center justify-between py-1 px-2 rounded bg-white/5 text-sm">
-                                                        <span className="truncate">{model.name}</span>
-                                                        <button
-                                                            onClick={() => deleteModelMutation.mutate({ profileId: profile.id, modelId: model.id })}
-                                                            className="p-1 hover:bg-red-500/20 rounded"
-                                                            title="Remove model"
-                                                        >
-                                                            <X className="w-3 h-3 text-red-400" />
-                                                        </button>
+                                                    <div key={model.id} className="py-2 px-3 rounded bg-white/5">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <span className="text-sm font-medium truncate">{model.name}</span>
+                                                            <button
+                                                                onClick={() => deleteModelMutation.mutate({ profileId: profile.id, modelId: model.id })}
+                                                                className="p-1 hover:bg-red-500/20 rounded"
+                                                                title="Remove model"
+                                                            >
+                                                                <X className="w-3 h-3 text-red-400" />
+                                                            </button>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                                            <div>
+                                                                <span className="text-[var(--text-secondary)]">In: </span>
+                                                                {inputModalities.map(m => (
+                                                                    <span
+                                                                        key={m}
+                                                                        onClick={() => handleModelModalityToggle(profile.id, model.id, 'input', m, model.inputModalities || ['text'])}
+                                                                        className={`inline-block px-1.5 py-0.5 rounded cursor-pointer mr-1 ${(model.inputModalities || ['text']).includes(m)
+                                                                            ? 'bg-indigo-500/30 text-indigo-400'
+                                                                            : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}
+                                                                    >
+                                                                        {m.charAt(0).toUpperCase()}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-[var(--text-secondary)]">Out: </span>
+                                                                {outputModalities.map(m => (
+                                                                    <span
+                                                                        key={m}
+                                                                        onClick={() => handleModelModalityToggle(profile.id, model.id, 'output', m, model.outputModalities || ['text'])}
+                                                                        className={`inline-block px-1.5 py-0.5 rounded cursor-pointer mr-1 ${(model.outputModalities || ['text']).includes(m)
+                                                                            ? 'bg-green-500/30 text-green-400'
+                                                                            : 'bg-white/10 text-[var(--text-secondary)] hover:bg-white/20'}`}
+                                                                    >
+                                                                        {m.charAt(0).toUpperCase()}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 ))
                                             )}

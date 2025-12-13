@@ -121,6 +121,8 @@ export interface Profile {
     url?: string;
     options?: Record<string, unknown>;
     promptTemplate?: string;
+    inputModalities?: string[];
+    outputModalities?: string[];
     createdAt: Date;
     updatedAt: Date;
 }
@@ -134,6 +136,8 @@ export interface ProfileInput {
     url?: string;
     options?: Record<string, unknown>;
     promptTemplate?: string;
+    inputModalities?: string[];
+    outputModalities?: string[];
 }
 
 // ============================================================

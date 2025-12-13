@@ -4,11 +4,13 @@ import { ProfileInput } from '../types';
 import { NotFoundError, BadRequestError } from '../middleware/error.middleware';
 import { encrypt, decrypt, maskApiKey } from '../utils/encryption';
 
-// Helper to format profile response with masked API key
+// Helper to format profile response with masked API key and parsed modalities
 function formatProfile(profile: any) {
     return {
         ...profile,
         api_key: profile.api_key ? maskApiKey(decrypt(profile.api_key)) : null,
+        input_modalities: profile.input_modalities ? JSON.parse(profile.input_modalities) : ['text'],
+        output_modalities: profile.output_modalities ? JSON.parse(profile.output_modalities) : ['text'],
     };
 }
 
@@ -68,7 +70,7 @@ export async function createProfile(req: Request, res: Response, next: NextFunct
         }
 
         const db = getDb();
-        const [profile] = await db('profiles').insert({
+        const profileData: any = {
             name: input.name,
             description: input.description || null,
             type: input.type,
@@ -77,7 +79,10 @@ export async function createProfile(req: Request, res: Response, next: NextFunct
             url: input.url || null,
             options: input.options ? JSON.stringify(input.options) : null,
             prompt_template: input.promptTemplate || null,
-        }).returning('*');
+            input_modalities: JSON.stringify(input.inputModalities || ['text']),
+            output_modalities: JSON.stringify(input.outputModalities || ['text']),
+        };
+        const [profile] = await db('profiles').insert(profileData).returning('*');
 
         res.status(201).json({ success: true, data: formatProfile(profile) });
     } catch (error) {
@@ -124,6 +129,8 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
         if (input.url !== undefined) updateData.url = input.url || null;
         if (input.options !== undefined) updateData.options = JSON.stringify(input.options);
         if (input.promptTemplate !== undefined) updateData.prompt_template = input.promptTemplate;
+        if (input.inputModalities !== undefined) updateData.input_modalities = JSON.stringify(input.inputModalities);
+        if (input.outputModalities !== undefined) updateData.output_modalities = JSON.stringify(input.outputModalities);
 
         const [profile] = await db('profiles').where('id', id).update(updateData).returning('*');
 
@@ -212,6 +219,21 @@ export async function testConnection(req: Request, res: Response, next: NextFunc
                 message = success ? 'API key looks valid' : 'Invalid API key format';
                 break;
             }
+            case 'comfyui': {
+                const baseUrl = url || 'http://localhost:8188';
+                try {
+                    const response = await fetch(`${baseUrl}/system_stats`);
+                    if (response.ok) {
+                        success = true;
+                        message = 'Connected to ComfyUI!';
+                    } else {
+                        message = 'Failed to connect to ComfyUI';
+                    }
+                } catch {
+                    message = 'Cannot connect to ComfyUI. Is it running?';
+                }
+                break;
+            }
             default:
                 throw new BadRequestError(`Unknown provider: ${provider}`);
         }
@@ -276,13 +298,24 @@ export async function addProfileModel(req: Request, res: Response, next: NextFun
             throw new BadRequestError(`Model ${modelId} already exists for this profile`);
         }
 
+        const modalities = detectModalities(modelId);
         const [model] = await db('profile_models').insert({
             profile_id: id,
             model_id: modelId,
             name: name || modelId,
+            input_modalities: JSON.stringify(modalities.inputs),
+            output_modalities: JSON.stringify(modalities.outputs),
         }).returning('*');
 
-        res.status(201).json({ success: true, data: { id: model.model_id, name: model.name } });
+        res.status(201).json({
+            success: true,
+            data: {
+                id: model.model_id,
+                name: model.name,
+                inputModalities: modalities.inputs,
+                outputModalities: modalities.outputs,
+            }
+        });
     } catch (error) {
         next(error);
     }
@@ -303,6 +336,39 @@ export async function deleteProfileModel(req: Request, res: Response, next: Next
         }
 
         res.json({ success: true, message: `Model ${modelId} deleted` });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Update model modalities
+export async function updateProfileModelModalities(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id, modelId } = req.params;
+        const { inputModalities, outputModalities } = req.body;
+        const db = getDb();
+
+        const existing = await db('profile_models')
+            .where({ profile_id: id, model_id: modelId })
+            .first();
+
+        if (!existing) {
+            throw new NotFoundError(`Model ${modelId} not found for profile ${id}`);
+        }
+
+        const updateData: any = {};
+        if (inputModalities !== undefined) {
+            updateData.input_modalities = JSON.stringify(inputModalities);
+        }
+        if (outputModalities !== undefined) {
+            updateData.output_modalities = JSON.stringify(outputModalities);
+        }
+
+        await db('profile_models')
+            .where({ profile_id: id, model_id: modelId })
+            .update(updateData);
+
+        res.json({ success: true, message: 'Modalities updated' });
     } catch (error) {
         next(error);
     }
