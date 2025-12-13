@@ -52,8 +52,13 @@ function detectModalities(modelName: string): { inputs: string[]; outputs: strin
 
 export async function listProfiles(req: Request, res: Response, next: NextFunction) {
     try {
+        const { provider } = req.query;
         const db = getDb();
-        const profiles = await db('profiles').orderBy('name', 'asc');
+        let query = db('profiles').orderBy('name', 'asc');
+        if (provider) {
+            query = query.where('provider', provider as string);
+        }
+        const profiles = await query;
 
         res.json({ success: true, data: profiles.map(formatProfile) });
     } catch (error) {
