@@ -273,3 +273,267 @@ export async function listGenerations(req: Request, res: Response, next: NextFun
         next(error);
     }
 }
+
+// ============================================
+// SESSION ENDPOINTS
+// ============================================
+
+// List all sessions
+export async function listSessions(req: Request, res: Response, next: NextFunction) {
+    try {
+        const db = getDb();
+        const sessions = await db('comfyui_sessions')
+            .leftJoin('profiles', 'comfyui_sessions.profile_id', 'profiles.id')
+            .select(
+                'comfyui_sessions.*',
+                'profiles.name as profile_name',
+                'profiles.url as profile_url'
+            )
+            .orderBy('comfyui_sessions.updated_at', 'desc');
+
+        res.json({ success: true, data: sessions });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Get single session with its generations
+export async function getSession(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id } = req.params;
+        const db = getDb();
+
+        const session = await db('comfyui_sessions')
+            .leftJoin('profiles', 'comfyui_sessions.profile_id', 'profiles.id')
+            .select(
+                'comfyui_sessions.*',
+                'profiles.name as profile_name',
+                'profiles.url as profile_url'
+            )
+            .where('comfyui_sessions.id', id)
+            .first();
+
+        if (!session) {
+            throw new NotFoundError(`Session ${id} not found`);
+        }
+
+        // Get generations for this session
+        const generations = await db('comfyui_generations')
+            .where('session_id', id)
+            .orderBy('created_at', 'desc');
+
+        res.json({
+            success: true,
+            data: {
+                ...session,
+                generations: generations.map(g => ({
+                    ...g,
+                    outputs: g.outputs ? JSON.parse(g.outputs) : [],
+                })),
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Create a new session
+export async function createSession(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { profileId, title } = req.body;
+        const db = getDb();
+
+        if (!profileId) {
+            throw new BadRequestError('profileId is required');
+        }
+
+        // Verify profile exists and is ComfyUI
+        const profile = await db('profiles').where('id', profileId).first();
+        if (!profile) {
+            throw new NotFoundError(`Profile ${profileId} not found`);
+        }
+        if (profile.provider !== 'comfyui') {
+            throw new BadRequestError('Profile must be a ComfyUI provider');
+        }
+
+        const autoTitle = title || `Session ${new Date().toLocaleString()}`;
+
+        const [session] = await db('comfyui_sessions').insert({
+            profile_id: profileId,
+            title: autoTitle,
+        }).returning('*');
+
+        res.status(201).json({ success: true, data: session });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Update session title
+export async function updateSession(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id } = req.params;
+        const { title } = req.body;
+        const db = getDb();
+
+        const [session] = await db('comfyui_sessions')
+            .where('id', id)
+            .update({ title, updated_at: new Date() })
+            .returning('*');
+
+        if (!session) {
+            throw new NotFoundError(`Session ${id} not found`);
+        }
+
+        res.json({ success: true, data: session });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Delete session
+export async function deleteSession(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { id } = req.params;
+        const db = getDb();
+
+        const deleted = await db('comfyui_sessions').where('id', id).delete();
+        if (deleted === 0) {
+            throw new NotFoundError(`Session ${id} not found`);
+        }
+
+        res.json({ success: true, message: `Session ${id} deleted` });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ============================================
+// DIRECT PROMPT SUBMISSION
+// ============================================
+
+// Basic txt2img workflow template for SD 1.5
+function buildTxt2ImgWorkflow(prompt: string, negativePrompt: string = ''): object {
+    return {
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {
+                "cfg": 7,
+                "denoise": 1,
+                "latent_image": ["5", 0],
+                "model": ["4", 0],
+                "negative": ["7", 0],
+                "positive": ["6", 0],
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "seed": Math.floor(Math.random() * 1000000000000),
+                "steps": 20
+            }
+        },
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {
+                "ckpt_name": "v1-5-pruned-emaonly-fp16.safetensors"
+            }
+        },
+        "5": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {
+                "batch_size": 1,
+                "height": 512,
+                "width": 512
+            }
+        },
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "clip": ["4", 1],
+                "text": prompt
+            }
+        },
+        "7": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "clip": ["4", 1],
+                "text": negativePrompt || "low quality, blurry, distorted"
+            }
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["3", 0],
+                "vae": ["4", 2]
+            }
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "filename_prefix": "ComfyUI",
+                "images": ["8", 0]
+            }
+        }
+    };
+}
+
+// Submit a prompt directly (creates generation without workflow)
+export async function submitPrompt(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { sessionId, prompt, negativePrompt } = req.body;
+        const db = getDb();
+
+        if (!sessionId || !prompt) {
+            throw new BadRequestError('sessionId and prompt are required');
+        }
+
+        // Get session and profile
+        const session = await db('comfyui_sessions')
+            .leftJoin('profiles', 'comfyui_sessions.profile_id', 'profiles.id')
+            .select('comfyui_sessions.*', 'profiles.url as profile_url')
+            .where('comfyui_sessions.id', sessionId)
+            .first();
+
+        if (!session) {
+            throw new NotFoundError(`Session ${sessionId} not found`);
+        }
+
+        const comfyUrl = session.profile_url || COMFYUI_URL;
+
+        // Build the workflow
+        const workflow = buildTxt2ImgWorkflow(prompt, negativePrompt);
+
+        // Send to ComfyUI
+        const response = await fetch(`${comfyUrl}/prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: workflow }),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new BadRequestError(`ComfyUI error: ${error}`);
+        }
+
+        const result = await response.json() as { prompt_id: string };
+
+        // Create generation record
+        const [generation] = await db('comfyui_generations').insert({
+            session_id: sessionId,
+            prompt_id: result.prompt_id,
+            prompt_text: prompt,
+            status: 'running',
+        }).returning('*');
+
+        // Update session timestamp
+        await db('comfyui_sessions')
+            .where('id', sessionId)
+            .update({ updated_at: new Date() });
+
+        res.json({ success: true, data: generation });
+    } catch (error: any) {
+        if (error.code === 'ECONNREFUSED') {
+            next(new BadRequestError('Cannot connect to ComfyUI. Is it running?'));
+        } else {
+            next(error);
+        }
+    }
+}

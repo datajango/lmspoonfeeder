@@ -9,9 +9,25 @@ import {
     getGeneration,
     proxyImage,
     listGenerations,
+    listSessions,
+    getSession,
+    createSession,
+    updateSession,
+    deleteSession,
+    submitPrompt,
 } from '../controllers/comfyui.controller';
 
 const router = Router();
+
+// Sessions CRUD
+router.get('/sessions', listSessions);
+router.post('/sessions', createSession);
+router.get('/sessions/:id', getSession);
+router.put('/sessions/:id', updateSession);
+router.delete('/sessions/:id', deleteSession);
+
+// Direct prompt submission
+router.post('/prompt', submitPrompt);
 
 // Workflows CRUD
 router.get('/workflows', listWorkflows);
@@ -29,3 +45,4 @@ router.get('/generations/:id', getGeneration);
 router.get('/image/:filename', proxyImage);
 
 export default router;
+
