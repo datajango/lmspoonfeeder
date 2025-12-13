@@ -18,6 +18,19 @@ sudo systemctl stop comfyui
 sudo systemctl restart comfyui
 ```
 
+## Backend
+
+**Start backend:**
+```
+cd backend
+npm run dev
+```
+
+**To Stop Backend:**
+```
+pkill -f "node.*backend"
+```
+
 ## Frontend
 
 **Start frontend:**

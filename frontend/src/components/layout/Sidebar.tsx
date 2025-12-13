@@ -10,19 +10,23 @@ import {
     Sparkles,
     Database,
     MessageCircle,
-    Image
+    Image,
+    Workflow,
+    Terminal
 } from 'lucide-react';
 
 const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/conversations', label: 'Conversations', icon: MessageCircle },
     { path: '/comfyui', label: 'ComfyUI', icon: Image },
+    { path: '/comfyui-workflows', label: 'ComfyUI WF', icon: Workflow },
     { path: '/models', label: 'Models', icon: Cpu },
     { path: '/tasks', label: 'Tasks', icon: ListTodo },
     { path: '/history', label: 'History', icon: History },
     { path: '/profiles', label: 'Profiles', icon: BookmarkCheck },
     { path: '/results', label: 'Results', icon: FileOutput },
     { path: '/database', label: 'Database', icon: Database },
+    { path: '/sql', label: 'SQL Console', icon: Terminal },
     { path: '/settings', label: 'Settings', icon: Settings },
 ];
 

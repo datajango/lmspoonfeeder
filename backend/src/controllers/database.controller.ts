@@ -3,10 +3,10 @@ import { getDb } from '../db';
 import { BadRequestError, NotFoundError } from '../middleware/error.middleware';
 
 // Allowed tables to prevent SQL injection
-const ALLOWED_TABLES = ['provider_settings', 'tasks', 'results', 'profiles', 'conversations', 'messages', 'profile_models', 'comfyui_workflows', 'comfyui_generations'];
+const ALLOWED_TABLES = ['provider_settings', 'tasks', 'results', 'profiles', 'conversations', 'messages', 'profile_models', 'comfyui_workflows', 'comfyui_generations', 'comfyui_sessions'];
 
 // Order for truncating (children first to respect FK constraints)
-const TRUNCATE_ORDER = ['comfyui_generations', 'comfyui_workflows', 'messages', 'conversations', 'profile_models', 'results', 'tasks', 'profiles', 'provider_settings'];
+const TRUNCATE_ORDER = ['comfyui_generations', 'comfyui_sessions', 'comfyui_workflows', 'messages', 'conversations', 'profile_models', 'results', 'tasks', 'profiles', 'provider_settings'];
 
 export async function listTables(req: Request, res: Response, next: NextFunction) {
     try {
@@ -219,5 +219,56 @@ export async function importDatabase(req: Request, res: Response, next: NextFunc
         res.json({ success: true, message: 'Import complete', data: results });
     } catch (error) {
         next(error);
+    }
+}
+
+export async function executeSQL(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { query } = req.body;
+
+        if (!query || typeof query !== 'string') {
+            throw new BadRequestError('query is required');
+        }
+
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) {
+            throw new BadRequestError('query cannot be empty');
+        }
+
+        const db = getDb();
+
+        // Execute the query
+        const result = await db.raw(trimmedQuery);
+
+        // PostgreSQL returns results in result.rows
+        const rows = result.rows || [];
+        const fields = result.fields?.map((f: any) => f.name) || [];
+
+        // For non-SELECT queries (INSERT, UPDATE, DELETE), rowCount is available
+        const rowCount = result.rowCount;
+        const command = result.command; // SELECT, INSERT, UPDATE, DELETE, etc.
+
+        res.json({
+            success: true,
+            data: {
+                rows,
+                fields,
+                rowCount,
+                command,
+            },
+        });
+    } catch (error: any) {
+        // Return SQL errors in a user-friendly way
+        if (error.code) {
+            res.status(400).json({
+                success: false,
+                error: `SQL Error: ${error.message}`,
+                code: error.code,
+                detail: error.detail,
+                hint: error.hint,
+            });
+        } else {
+            next(error);
+        }
     }
 }
