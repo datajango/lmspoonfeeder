@@ -107,16 +107,7 @@ function applyParametersToWorkflow(
 
         switch (classType) {
             case 'CLIPTextEncode':
-                // Check node title or position to determine positive vs negative
-                const nodeTitle = (node as any)._meta?.title?.toLowerCase() || '';
-                if (nodeTitle.includes('negative') || nodeTitle.includes('neg')) {
-                    inputs.text = negativePrompt || '';
-                } else if (nodeTitle.includes('positive') || nodeTitle.includes('pos') || !negativePrompt) {
-                    // Default to positive prompt for first text encoder
-                    if (inputs.text !== undefined) {
-                        inputs.text = prompt;
-                    }
-                }
+                // Don't modify here - we'll handle prompts separately below
                 break;
 
             case 'KSampler':
@@ -135,8 +126,39 @@ function applyParametersToWorkflow(
                 break;
 
             case 'CheckpointLoaderSimple':
-                if (params.checkpoint_name !== undefined) inputs.ckpt_name = params.checkpoint_name;
+                // Only override if a specific checkpoint is provided (not empty string)
+                if (params.checkpoint_name) inputs.ckpt_name = params.checkpoint_name;
                 break;
+        }
+    }
+
+    // Now handle prompts by finding KSampler and tracing its positive/negative connections
+    for (const [nodeId, node] of Object.entries(workflow)) {
+        const classType = (node as any).class_type;
+        const inputs = (node as any).inputs;
+
+        if (classType === 'KSampler' || classType === 'KSamplerAdvanced') {
+            // Get the positive and negative node references
+            // Format: ["nodeId", outputIndex]
+            const positiveRef = inputs.positive;
+            const negativeRef = inputs.negative;
+
+            if (positiveRef && Array.isArray(positiveRef)) {
+                const positiveNodeId = positiveRef[0];
+                const positiveNode = (workflow as any)[positiveNodeId];
+                if (positiveNode?.inputs) {
+                    positiveNode.inputs.text = prompt;
+                }
+            }
+
+            if (negativeRef && Array.isArray(negativeRef)) {
+                const negativeNodeId = negativeRef[0];
+                const negativeNode = (workflow as any)[negativeNodeId];
+                if (negativeNode?.inputs) {
+                    negativeNode.inputs.text = negativePrompt || 'low quality, blurry, distorted';
+                }
+            }
+            break; // Only need to process one KSampler
         }
     }
 

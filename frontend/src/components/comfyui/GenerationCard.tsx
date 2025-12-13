@@ -54,7 +54,7 @@ export default function GenerationCard({
 
             {/* Image Display */}
             {isComplete && (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                <div className="space-y-2">
                     {generation.outputs.map((output, i) => (
                         <div key={i} className="relative group">
                             <img
@@ -63,7 +63,7 @@ export default function GenerationCard({
                                 className="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                                 loading="lazy"
                             />
-                            <span className="absolute bottom-1 right-1 text-[10px] bg-black/60 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span className="absolute bottom-2 right-2 text-xs bg-black/70 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
                                 {output.filename}
                             </span>
                         </div>

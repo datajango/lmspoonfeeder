@@ -1,8 +1,8 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import Header from '../components/layout/Header';
-import { ParameterPanel, GenerationCard, WorkflowSelector, WorkflowJSONViewer } from '../components/comfyui';
+import { GenerationPanel, GenerationHistory, WorkflowJSONViewer } from '../components/comfyui';
 import type {
     ComfyUISession,
     ComfyUIGeneration,
@@ -11,7 +11,7 @@ import type {
     GenerationParameters,
 } from '../types/comfyui';
 import { DEFAULT_GENERATION_PARAMETERS } from '../types/comfyui';
-import { Plus, Trash2, Edit2, X, Loader2, Image, Send, Check, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Loader2, Image, Check, Sparkles } from 'lucide-react';
 
 const API_BASE = 'http://localhost:3001/api';
 
@@ -106,8 +106,6 @@ const fetchGeneration = async (id: string): Promise<ComfyUIGeneration> => {
 };
 
 export default function ComfyUI() {
-    const chatContainerRef = useRef<HTMLDivElement>(null);
-
     // State
     const [selectedSession, setSelectedSession] = useState<string | null>(null);
     const [sessionData, setSessionData] = useState<(ComfyUISession & { generations: ComfyUIGeneration[] }) | null>(null);
@@ -163,13 +161,7 @@ export default function ComfyUI() {
         }
     }, [selectedSession]);
 
-    // Scroll to bottom when new generations are added
-    useEffect(() => {
-        if (chatContainerRef.current && sessionData?.generations) {
-            // Scroll to top since generations are in reverse chronological order
-            chatContainerRef.current.scrollTop = 0;
-        }
-    }, [sessionData?.generations?.length]);
+
 
     // Mutations
     const createMutation = useMutation({
@@ -278,12 +270,7 @@ export default function ComfyUI() {
         });
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit();
-        }
-    };
+
 
     const handleCreateSession = () => {
         if (!dialogProfile) return;
@@ -439,91 +426,36 @@ export default function ComfyUI() {
                                 )}
                             </div>
 
-                            {/* Workflow Selector */}
-                            <div className="mb-4">
-                                <label className="block text-sm text-[var(--text-secondary)] mb-1">Workflow</label>
-                                <WorkflowSelector
-                                    workflows={workflows || []}
-                                    selectedWorkflowId={selectedWorkflowId}
-                                    onSelectWorkflow={setSelectedWorkflowId}
-                                />
-                            </div>
+                            {/* Two-Column Layout: Generation Panel + History */}
+                            <div className="flex-1 flex gap-6 min-h-0">
+                                {/* Left Column: Generation Panel */}
+                                <div className="w-[450px] flex-shrink-0">
+                                    <GenerationPanel
+                                        workflows={workflows || []}
+                                        selectedWorkflowId={selectedWorkflowId}
+                                        onSelectWorkflow={setSelectedWorkflowId}
+                                        parameters={parameters}
+                                        onChangeParameters={setParameters}
+                                        checkpoints={options?.checkpoints}
+                                        prompt={prompt}
+                                        negativePrompt={negativePrompt}
+                                        onChangePrompt={setPrompt}
+                                        onChangeNegativePrompt={setNegativePrompt}
+                                        onSubmit={handleSubmit}
+                                        isGenerating={generateMutation.isPending}
+                                        settingsCollapsed={settingsCollapsed}
+                                        onToggleSettingsCollapse={() => setSettingsCollapsed(!settingsCollapsed)}
+                                    />
+                                </div>
 
-                            {/* Parameter Panel */}
-                            <div className="mb-4">
-                                <ParameterPanel
-                                    parameters={parameters}
-                                    onChange={setParameters}
-                                    checkpoints={options?.checkpoints}
-                                    collapsed={settingsCollapsed}
-                                    onToggleCollapse={() => setSettingsCollapsed(!settingsCollapsed)}
-                                />
-                            </div>
-
-                            {/* Generation History (Chat Style) */}
-                            <div
-                                ref={chatContainerRef}
-                                className="flex-1 card overflow-y-auto space-y-4"
-                            >
-                                <h3 className="font-semibold sticky top-0 bg-[var(--bg-card)] pb-2 z-10">
-                                    Generation History
-                                </h3>
-                                {(!sessionData?.generations || sessionData.generations.length === 0) ? (
-                                    <div className="text-center text-[var(--text-secondary)] py-8">
-                                        <Image className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                                        <p>No images generated yet</p>
-                                        <p className="text-sm">Enter a prompt below to get started</p>
-                                    </div>
-                                ) : (
-                                    sessionData.generations.map((gen) => (
-                                        <GenerationCard
-                                            key={gen.id}
-                                            generation={gen}
-                                            onReuseSettings={handleReuseSettings}
-                                            onViewWorkflow={setViewingWorkflowId}
-                                        />
-                                    ))
-                                )}
-                            </div>
-
-                            {/* Prompt Input (Fixed at bottom) */}
-                            <div className="card mt-4">
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-sm text-[var(--text-secondary)] mb-1">Prompt</label>
-                                        <textarea
-                                            value={prompt}
-                                            onChange={(e) => setPrompt(e.target.value)}
-                                            onKeyDown={handleKeyDown}
-                                            placeholder="Describe the image you want to generate..."
-                                            className="input w-full resize-none"
-                                            rows={2}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm text-[var(--text-secondary)] mb-1">
-                                            Negative Prompt <span className="opacity-50">(optional)</span>
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={negativePrompt}
-                                            onChange={(e) => setNegativePrompt(e.target.value)}
-                                            placeholder="Things to avoid..."
-                                            className="input w-full"
-                                        />
-                                    </div>
-                                    <button
-                                        onClick={handleSubmit}
-                                        disabled={!prompt.trim() || generateMutation.isPending}
-                                        className="btn-primary flex items-center gap-2 disabled:opacity-50"
-                                    >
-                                        {generateMutation.isPending ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                        ) : (
-                                            <Send className="w-4 h-4" />
-                                        )}
-                                        Generate
-                                    </button>
+                                {/* Right Column: Generation History */}
+                                <div className="flex-1 min-w-0">
+                                    <GenerationHistory
+                                        generations={sessionData?.generations || []}
+                                        onReuseSettings={handleReuseSettings}
+                                        onViewWorkflow={setViewingWorkflowId}
+                                        isPolling={isPolling}
+                                    />
                                 </div>
                             </div>
                         </>
