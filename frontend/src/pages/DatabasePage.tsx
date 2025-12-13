@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useRef } from 'react';
 import Header from '../components/layout/Header';
 import toast from 'react-hot-toast';
-import { Database, Table, ChevronLeft, ChevronRight, ArrowUpDown, Trash2, Download, Upload, AlertTriangle, X } from 'lucide-react';
+import { Database, Table, ChevronLeft, ChevronRight, ArrowUpDown, Trash2, Download, Upload, AlertTriangle, X, Info } from 'lucide-react';
 
 interface TableInfo {
     name: string;
@@ -14,6 +14,7 @@ interface Column {
     name: string;
     type: string;
     nullable: boolean;
+    default?: string;
 }
 
 const fetchTables = async (): Promise<TableInfo[]> => {
@@ -50,7 +51,15 @@ export default function DatabasePage() {
     const [confirmTruncateAll, setConfirmTruncateAll] = useState(false);
     const [importing, setImporting] = useState(false);
     const [selectedRow, setSelectedRow] = useState<any>(null);
+    const [schemaModalTable, setSchemaModalTable] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Query for schema modal
+    const { data: schemaModalData, isLoading: schemaModalLoading } = useQuery({
+        queryKey: ['table-schema-modal', schemaModalTable],
+        queryFn: () => fetchTableSchema(schemaModalTable!),
+        enabled: !!schemaModalTable,
+    });
 
     const { data: tables, isLoading: tablesLoading } = useQuery({
         queryKey: ['database-tables'],
@@ -212,6 +221,16 @@ export default function DatabasePage() {
                                             </button>
                                             <span className="text-xs opacity-60 mr-2">{table.rowCount}</span>
                                             <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSchemaModalTable(table.name);
+                                                }}
+                                                className="p-1 hover:bg-indigo-500/20 rounded opacity-50 hover:opacity-100"
+                                                title="View schema"
+                                            >
+                                                <Info className="w-3 h-3 text-indigo-400" />
+                                            </button>
+                                            <button
                                                 onClick={() => setConfirmTruncate(table.name)}
                                                 className="p-1 hover:bg-red-500/20 rounded opacity-50 hover:opacity-100"
                                                 title="Truncate table"
@@ -225,11 +244,50 @@ export default function DatabasePage() {
                         </div>
                     </div>
 
+                    {/* Schema Panel */}
+                    {schemaModalTable && (
+                        <div className="w-72 flex-shrink-0">
+                            <div className="card">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                                        <Info className="w-5 h-5 text-indigo-400" />
+                                        {schemaModalTable}
+                                    </h3>
+                                    <button onClick={() => setSchemaModalTable(null)}>
+                                        <X className="w-4 h-4 text-[var(--text-secondary)] hover:text-white" />
+                                    </button>
+                                </div>
+                                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                                    {schemaModalLoading ? (
+                                        <p className="text-[var(--text-secondary)] text-sm">Loading schema...</p>
+                                    ) : (
+                                        schemaModalData?.map((col) => (
+                                            <div key={col.name} className="bg-black/20 rounded-lg p-3">
+                                                <div className="font-medium text-white text-sm mb-1">{col.name}</div>
+                                                <div className="text-xs text-[var(--text-secondary)]">
+                                                    <span className="text-indigo-400 font-mono">{col.type}</span>
+                                                    <span className={`ml-2 ${col.nullable ? 'text-yellow-400' : 'text-green-400'}`}>
+                                                        {col.nullable ? 'nullable' : 'not null'}
+                                                    </span>
+                                                </div>
+                                                {col.default && (
+                                                    <div className="text-xs text-[var(--text-secondary)] mt-1 font-mono truncate" title={col.default}>
+                                                        default: {col.default}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Data Viewer */}
                     <div className="flex-1 min-w-0">
                         {!selectedTable ? (
                             <div className="card text-center py-12 text-[var(--text-secondary)]">
-                                Select a table to browse its data
+                                Select a table or Info to browse its data or schema
                             </div>
                         ) : (
                             <div className="card">
