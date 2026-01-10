@@ -47,3 +47,10 @@ coverage/
 *.local
 .cache/
 keys.txt
+
+# Python
+__pycache__
+venv/
+.venv/
+.venv/*
+TOKEN.txt

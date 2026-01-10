@@ -1,0 +1,124 @@
+{
+    "1": {
+        "class_type": "CheckpointLoaderSimple",
+        "inputs": {
+            "ckpt_name": "sd_xl_base_1.0.safetensors"
+        }
+    },
+    "2": {
+        "class_type": "ADE_LoadAnimateDiffModel",
+        "inputs": {
+            "model_name": "mm_sdxl_v10_beta.ckpt"
+        }
+    },
+    "3": {
+        "class_type": "ADE_ApplyAnimateDiffModelSimple",
+        "inputs": {
+            "model": [
+                "1",
+                0
+            ],
+            "motion_model": [
+                "2",
+                0
+            ]
+        }
+    },
+    "4": {
+        "class_type": "ADE_UseEvolvedSampling",
+        "inputs": {
+            "model": [
+                "1",
+                0
+            ],
+            "m_models": [
+                "3",
+                0
+            ],
+            "beta_schedule": "autoselect"
+        }
+    },
+    "5": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "clip": [
+                "1",
+                1
+            ],
+            "text": "a cat walking through a garden, cinematic"
+        }
+    },
+    "6": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "clip": [
+                "1",
+                1
+            ],
+            "text": "blurry, static, bad quality"
+        }
+    },
+    "7": {
+        "class_type": "ADE_EmptyLatentImageLarge",
+        "inputs": {
+            "width": 512,
+            "height": 512,
+            "batch_size": 16
+        }
+    },
+    "8": {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": [
+                "4",
+                0
+            ],
+            "positive": [
+                "5",
+                0
+            ],
+            "negative": [
+                "6",
+                0
+            ],
+            "latent_image": [
+                "7",
+                0
+            ],
+            "seed": 42,
+            "steps": 20,
+            "cfg": 7.0,
+            "sampler_name": "euler_ancestral",
+            "scheduler": "normal",
+            "denoise": 1.0
+        }
+    },
+    "9": {
+        "class_type": "VAEDecode",
+        "inputs": {
+            "vae": [
+                "1",
+                2
+            ],
+            "samples": [
+                "8",
+                0
+            ]
+        }
+    },
+    "10": {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "images": [
+                "9",
+                0
+            ],
+            "frame_rate": 8,
+            "loop_count": 0,
+            "filename_prefix": "animatediff",
+            "format": "video/h264-mp4",
+            "pingpong": false,
+            "save_output": true
+        }
+    }
+}
